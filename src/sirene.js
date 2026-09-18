@@ -1,3 +1,0 @@
-const BASE=process.env.SIRENE_URL||'https://recherche-entreprises.api.gouv.fr/search';
-export async function enrichCompany(name,postcode){const params=new URLSearchParams({q:name,per_page:'5'}); if(postcode)params.set('code_postal',postcode); const r=await fetch(`${BASE}?${params}`); if(!r.ok)return null; const d=await r.json(); return d.results?.[0]||null;}
-export function employeeCount(r){const n=r?.siege?.tranche_effectif_salarie||r?.tranche_effectif_salarie; const map={'00':0,'01':1,'02':2,'03':3,'11':3,'12':5,'21':10,'22':20,'31':50,'32':100,'41':250,'42':500,'51':1000,'52':5000,'53':10000}; return map[n]??null;}
