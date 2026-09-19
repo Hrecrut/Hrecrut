@@ -13,7 +13,7 @@ app.get('/api/settings/sync',async(_,res)=>{const r=await q("SELECT value FROM a
 app.put('/api/settings/sync',async(req,res)=>{const minutes=Number(req.body?.interval_minutes); const allowed=[15,30,60,120,360,720,1440]; if(!allowed.includes(minutes))return res.status(400).json({error:'Fréquence invalide'}); await q(`INSERT INTO app_settings(key,value) VALUES('sync_interval_minutes',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`,[String(minutes)]); await configureScheduler(); res.json({ok:true,interval_minutes:minutes});});
 app.get('/api/sync/status',async(_,res)=>{const r=await q("SELECT id,source,status,started_at,finished_at,stats,error FROM sync_runs ORDER BY id DESC LIMIT 1");res.json(r.rows[0]||null);});
 app.get('/api/export/jobs.xlsx',async(_,res)=>{const rows=(await q("SELECT j.title,c.name company,c.employee_count,j.location,j.postcode,j.department,j.contract_type,j.salary_text,j.schedule,j.experience,j.skills,j.url FROM jobs j LEFT JOIN companies c ON c.id=j.company_id WHERE j.status='active' AND (c.employee_count<=40 OR c.employee_count IS NULL) ORDER BY j.updated_source_at DESC")).rows; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Offres'); const buf=XLSX.write(wb,{type:'buffer',bookType:'xlsx'});res.setHeader('Content-Disposition','attachment; filename="maintimatch-offres.xlsx"');res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').send(buf);});
-app.get('*',(_,res)=>res.sendFile(path.join(__dirname,'../public/index.html')));
+app.use((_, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
 let scheduledTask=null;
 async function configureScheduler(){
   if(scheduledTask) scheduledTask.stop();
