@@ -66,8 +66,7 @@ export async function searchOffers() {
   const t = await token();
 
   const departmentGroups = [
-    ['75', '77', '78', '91', '92'],
-    ['93', '94', '95']
+    ['91']
   ];
 
   const allOffers = [];
@@ -75,10 +74,7 @@ export async function searchOffers() {
   for (const departments of departmentGroups) {
     const params = new URLSearchParams();
 
-    params.set(
-      'motsCles',
-      'technicien maintenance industrielle OR électrotechnicien OR électromécanicien OR technicien SAV'
-    );
+   params.set('motsCles', 'technicien de maintenance');
 
     params.set('departement', departments.join(','));
     params.set('publieeDepuis', '1');
