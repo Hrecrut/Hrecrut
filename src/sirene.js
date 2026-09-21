@@ -21,16 +21,22 @@ export async function enrichCompany(name, postcode) {
     throw new Error(`SIRENE ${r.status}`);
   }
 
-  const d = await r.json();
+  const data = await r.json();
 
-  return d.results?.[0] || null;
+  return data.results?.[0] || null;
 }
 
 /**
- * Retourne le code de tranche d'effectif SIRENE.
+ * Récupère le code de tranche d'effectif.
+ *
+ * L'API peut placer cette information dans :
+ * - unite_legale
+ * - siege
+ * - la racine de l'objet
  */
 export function employeeCode(r) {
   return (
+    r?.unite_legale?.tranche_effectif_salarie ||
     r?.siege?.tranche_effectif_salarie ||
     r?.tranche_effectif_salarie ||
     null
@@ -40,9 +46,9 @@ export function employeeCode(r) {
 /**
  * Convertit les tranches SIRENE en borne haute.
  *
- * On utilise volontairement la borne haute :
- * cela permet de ne pas considérer comme "≤40 salariés"
- * une entreprise dont la tranche est 20-49 salariés.
+ * On utilise la borne haute afin de ne pas considérer
+ * automatiquement une entreprise 20-49 comme une PME
+ * ≤ 40 salariés.
  */
 export function employeeCount(r) {
   const code = employeeCode(r);
@@ -69,18 +75,7 @@ export function employeeCount(r) {
 }
 
 /**
- * Détermine si la taille de l'entreprise est compatible
- * avec notre cible commerciale PME ≤ 40 salariés.
- *
- * eligible :
- *   tranche dont la borne haute est ≤40
- *
- * too_large :
- *   entreprise dont la tranche commence au-dessus de 40
- *   ou dont la borne haute dépasse clairement 40
- *
- * unknown :
- *   information absente ou impossible à déterminer précisément.
+ * Classe l'entreprise selon sa taille.
  */
 export function employeeStatus(r) {
   const code = employeeCode(r);
@@ -89,18 +84,33 @@ export function employeeStatus(r) {
     return 'unknown';
   }
 
-  // Tranches garanties ≤ 40 salariés
-  if (['00', '01', '02', '03', '11'].includes(code)) {
+  /**
+   * Ces tranches garantissent une entreprise
+   * de 19 salariés maximum.
+   */
+  if (
+    ['00', '01', '02', '03', '11'].includes(code)
+  ) {
     return 'eligible';
   }
 
-  // 20-49 : impossible de garantir ≤40
+  /**
+   * Tranche 20-49.
+   *
+   * Nous ne pouvons pas confirmer que l'entreprise
+   * possède 40 salariés ou moins.
+   */
   if (code === '12') {
     return 'unknown_20_49';
   }
 
-  // 50 salariés et plus
-  if (['21', '22', '31', '32', '41', '42', '51', '52', '53'].includes(code)) {
+  /**
+   * 50 salariés et plus.
+   */
+  if (
+    ['21', '22', '31', '32', '41', '42', '51', '52', '53']
+      .includes(code)
+  ) {
     return 'too_large';
   }
 
@@ -108,8 +118,8 @@ export function employeeStatus(r) {
 }
 
 /**
- * Récupère quelques informations utiles lorsque l'API
- * les fournit.
+ * Récupération des informations générales
+ * disponibles dans la réponse SIRENE.
  */
 export function companyInfo(r) {
   if (!r) {
@@ -122,9 +132,13 @@ export function companyInfo(r) {
   }
 
   const siege = r.siege || {};
+  const uniteLegale = r.unite_legale || {};
 
   return {
-    siren: r.siren || r.unite_legale?.siren || null,
+    siren:
+      r.siren ||
+      uniteLegale.siren ||
+      null,
 
     siret:
       siege.siret ||
@@ -138,7 +152,7 @@ export function companyInfo(r) {
     website:
       siege.site_web ||
       r.site_web ||
-      r.unite_legale?.site_web ||
+      uniteLegale.site_web ||
       null
   };
 }
