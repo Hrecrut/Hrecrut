@@ -2,9 +2,6 @@ const BASE =
   process.env.SIRENE_URL ||
   'https://recherche-entreprises.api.gouv.fr/search';
 
-/**
- * Recherche une entreprise dans l'API Recherche Entreprises.
- */
 export async function enrichCompany(name, postcode) {
   const params = new URLSearchParams({
     q: name,
@@ -15,7 +12,9 @@ export async function enrichCompany(name, postcode) {
     params.set('code_postal', postcode);
   }
 
-  const r = await fetch(`${BASE}?${params.toString()}`);
+  const url = `${BASE}?${params.toString()}`;
+
+  const r = await fetch(url);
 
   if (!r.ok) {
     throw new Error(`SIRENE ${r.status}`);
@@ -23,17 +22,34 @@ export async function enrichCompany(name, postcode) {
 
   const data = await r.json();
 
-  return data.results?.[0] || null;
+  const result = data.results?.[0] || null;
+
+  // Diagnostic temporaire dans les logs Render
+  console.log(
+    '[SIRENE]',
+    JSON.stringify({
+      name,
+      postcode,
+      results: data.results?.length || 0,
+      hasResult: !!result,
+      keys: result ? Object.keys(result) : [],
+      unite_legale_keys: result?.unite_legale
+        ? Object.keys(result.unite_legale)
+        : [],
+      siege_keys: result?.siege
+        ? Object.keys(result.siege)
+        : [],
+      tranche_root: result?.tranche_effectif_salarie,
+      tranche_unite_legale:
+        result?.unite_legale?.tranche_effectif_salarie,
+      tranche_siege:
+        result?.siege?.tranche_effectif_salarie
+    })
+  );
+
+  return result;
 }
 
-/**
- * Récupère le code de tranche d'effectif.
- *
- * L'API peut placer cette information dans :
- * - unite_legale
- * - siege
- * - la racine de l'objet
- */
 export function employeeCode(r) {
   return (
     r?.unite_legale?.tranche_effectif_salarie ||
@@ -43,13 +59,6 @@ export function employeeCode(r) {
   );
 }
 
-/**
- * Convertit les tranches SIRENE en borne haute.
- *
- * On utilise la borne haute afin de ne pas considérer
- * automatiquement une entreprise 20-49 comme une PME
- * ≤ 40 salariés.
- */
 export function employeeCount(r) {
   const code = employeeCode(r);
 
@@ -74,9 +83,6 @@ export function employeeCount(r) {
   return map[code] ?? null;
 }
 
-/**
- * Classe l'entreprise selon sa taille.
- */
 export function employeeStatus(r) {
   const code = employeeCode(r);
 
@@ -84,29 +90,16 @@ export function employeeStatus(r) {
     return 'unknown';
   }
 
-  /**
-   * Ces tranches garantissent une entreprise
-   * de 19 salariés maximum.
-   */
   if (
     ['00', '01', '02', '03', '11'].includes(code)
   ) {
     return 'eligible';
   }
 
-  /**
-   * Tranche 20-49.
-   *
-   * Nous ne pouvons pas confirmer que l'entreprise
-   * possède 40 salariés ou moins.
-   */
   if (code === '12') {
     return 'unknown_20_49';
   }
 
-  /**
-   * 50 salariés et plus.
-   */
   if (
     ['21', '22', '31', '32', '41', '42', '51', '52', '53']
       .includes(code)
@@ -117,10 +110,6 @@ export function employeeStatus(r) {
   return 'unknown';
 }
 
-/**
- * Récupération des informations générales
- * disponibles dans la réponse SIRENE.
- */
 export function companyInfo(r) {
   if (!r) {
     return {
@@ -155,4 +144,5 @@ export function companyInfo(r) {
       uniteLegale.site_web ||
       null
   };
+}
 }
