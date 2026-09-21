@@ -65,8 +65,9 @@ async function token() {
 export async function searchOffers() {
   const t = await token();
 
-  const departmentGroups = [
-    ['91']
+ const departmentGroups = [
+  ['75', '77', '78', '91', '92'],
+  ['93', '94', '95']
   ];
 
   const allOffers = [];
