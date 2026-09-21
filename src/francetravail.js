@@ -30,17 +30,33 @@ async function token() {
     body
   });
 
+  const responseText = await r.text();
+
   if (!r.ok) {
     throw new Error(
-      `France Travail OAuth ${r.status}: ${await r.text()}`
+      `France Travail OAuth ${r.status}: ${responseText.slice(0, 1000)}`
     );
   }
 
-  const d = await r.json();
+  let d;
+
+  try {
+    d = JSON.parse(responseText);
+  } catch {
+    throw new Error(
+      `France Travail OAuth: réponse non JSON: ${responseText.slice(0, 1000)}`
+    );
+  }
+
+  if (!d.access_token) {
+    throw new Error(
+      `France Travail OAuth: aucun access_token reçu: ${responseText.slice(0, 1000)}`
+    );
+  }
 
   cached = {
     token: d.access_token,
-    expires: Date.now() + (d.expires_in - 60) * 1000
+    expires: Date.now() + ((d.expires_in || 3600) - 60) * 1000
   };
 
   return cached.token;
@@ -49,7 +65,6 @@ async function token() {
 export async function searchOffers() {
   const t = await token();
 
-  // France Travail autorise au maximum 5 départements par recherche.
   const departmentGroups = [
     ['75', '77', '78', '91', '92'],
     ['93', '94', '95']
@@ -70,19 +85,32 @@ export async function searchOffers() {
     params.set('range', '0-149');
     params.set('sort', '1');
 
-    const r = await fetch(`${API_URL}?${params}`, {
+    const url = `${API_URL}?${params.toString()}`;
+
+    const r = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${t}`
+        Authorization: `Bearer ${t}`,
+        Accept: 'application/json'
       }
     });
 
+    const responseText = await r.text();
+
     if (!r.ok) {
       throw new Error(
-        `France Travail API ${r.status}: ${await r.text()}`
+        `France Travail API ${r.status} pour ${departments.join(',')}: ${responseText.slice(0, 1000)}`
       );
     }
 
-    const data = await r.json();
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        `France Travail réponse non JSON pour ${departments.join(',')}: ${responseText.slice(0, 1000)}`
+      );
+    }
 
     allOffers.push(...(data.resultats || []));
   }
