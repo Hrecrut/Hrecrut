@@ -241,16 +241,13 @@ const result = await q(
     $8,
     $9,
     $10,
-    CASE
-      WHEN $9 IS NOT NULL THEN now()
-      ELSE NULL
-    END,
     $11,
     $12,
     $13,
     $14,
-    'France Travail',
-    $15
+    $15,
+    $16,
+    $17
   )
   RETURNING *
   `,
@@ -265,10 +262,12 @@ const result = await q(
     info.website || ent.url || null,
     count,
     count !== null ? 'SIRENE' : null,
+    count !== null ? new Date() : null,
     commercialScore,
     companyType,
     sizeStatus,
     intermediary,
+    'France Travail',
     JSON.stringify(ent)
   ]
 );
