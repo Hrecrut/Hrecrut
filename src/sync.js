@@ -209,59 +209,71 @@ async function upsertCompany(offer) {
 
   if (!company) {
 
-    const result = await q(
-      `
-      INSERT INTO companies (
-        name,
-        siret,
-        siren,
-        address,
-        postcode,
-        city,
-        department,
-        website,
-        employee_count,
-        employee_source,
-        employee_verified_at,
-        commercial_score,
-        company_type,
-        size_status,
-        is_intermediary,
-        source,
-        raw
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        CASE
-          WHEN $9 IS NOT NULL THEN now()
-          ELSE NULL
-        END,
-        $11,$12,$13,$14,$15,'France Travail',$16
-      )
-      RETURNING *
-      `,
-      [
-        name,
-        siret || info.siret,
-        info.siren,
-        info.address,
-        postcode,
-        offer.lieuTravail?.commune || null,
-        department,
-        info.website || ent.url || null,
-        count,
-        count !== null
-          ? 'SIRENE'
-          : null,
-        commercialScore,
-        companyType,
-        sizeStatus,
-        intermediary,
-        JSON.stringify(ent)
-      ]
-    );
+const result = await q(
+  `
+  INSERT INTO companies (
+    name,
+    siret,
+    siren,
+    address,
+    postcode,
+    city,
+    department,
+    website,
+    employee_count,
+    employee_source,
+    employee_verified_at,
+    commercial_score,
+    company_type,
+    size_status,
+    is_intermediary,
+    source,
+    raw
+  )
+  VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    CASE
+      WHEN $9 IS NOT NULL THEN now()
+      ELSE NULL
+    END,
+    $11,
+    $12,
+    $13,
+    $14,
+    'France Travail',
+    $15
+  )
+  RETURNING *
+  `,
+  [
+    name,
+    siret || info.siret,
+    info.siren,
+    info.address,
+    postcode,
+    offer.lieuTravail?.commune || null,
+    department,
+    info.website || ent.url || null,
+    count,
+    count !== null ? 'SIRENE' : null,
+    commercialScore,
+    companyType,
+    sizeStatus,
+    intermediary,
+    JSON.stringify(ent)
+  ]
+);
 
-    company = result.rows[0];
+company = result.rows[0];
 
   } else {
 
