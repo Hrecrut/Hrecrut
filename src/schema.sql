@@ -60,3 +60,6 @@ ON companies(size_status);
 
 CREATE INDEX IF NOT EXISTS idx_companies_intermediary
 ON companies(is_intermediary);
+
+ALTER TABLE candidates
+ADD COLUMN IF NOT EXISTS notes TEXT;
