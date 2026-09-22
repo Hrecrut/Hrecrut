@@ -1,4 +1,5 @@
 import { q } from './db.js';
+
 import {
   configured,
   searchOffers
@@ -25,10 +26,11 @@ const DEPTS = new Set([
 ]);
 
 /**
- * Entreprises que nous ne voulons pas appeler commercialement.
+ * Détection prudente des intermédiaires.
  *
- * IMPORTANT :
- * leurs offres restent dans Hrecrut.
+ * Les offres restent dans Hrecrut.
+ * L'entreprise ne sera simplement pas proposée
+ * comme prospect PME prioritaire.
  */
 const INTERMEDIARY_PATTERNS = [
   /\bint[ée]rim\b/i,
@@ -41,7 +43,6 @@ const INTERMEDIARY_PATTERNS = [
   /\bressources humaines\b/i,
   /\brh\b/i,
 
-  // Principaux acteurs rencontrés dans les offres
   /\brandstad\b/i,
   /\badecco\b/i,
   /\bmanpower\b/i,
@@ -62,19 +63,12 @@ const INTERMEDIARY_PATTERNS = [
   /\bkelly\b/i
 ];
 
-/**
- * Détermine si une entreprise est probablement
- * un intermédiaire de recrutement/intérim.
- */
 function isIntermediary(name = '') {
-  return INTERMEDIARY_PATTERNS.some((pattern) =>
+  return INTERMEDIARY_PATTERNS.some(pattern =>
     pattern.test(name)
   );
 }
 
-/**
- * Détermine le département à partir du code postal.
- */
 function deptFromPostcode(postcode = '') {
   const p = String(postcode).trim();
 
@@ -85,14 +79,10 @@ function deptFromPostcode(postcode = '') {
   return p.slice(0, 2);
 }
 
-/**
- * Vérifie qu'une offre correspond à notre niche.
- */
 function isRelevant(offer) {
-  const title = offer.intitule || '';
-  const description = offer.description || '';
-
-  const text = `${title} ${description}`.toLowerCase();
+  const text = (
+    `${offer.intitule || ''} ${offer.description || ''}`
+  ).toLowerCase();
 
   const positive =
     /(maintenance industrielle|technicien de maintenance|electrotechnicien|électrotechnicien|electromecanicien|électromécanicien|technicien sav)/i;
@@ -100,14 +90,14 @@ function isRelevant(offer) {
   const negative =
     /(informatique|it support|automobile|bâtiment uniquement|batiment uniquement)/i;
 
-  return positive.test(text) && !negative.test(text);
+  return (
+    positive.test(text) &&
+    !negative.test(text)
+  );
 }
 
 /**
  * Recherche une entreprise existante.
- *
- * On essaie d'abord avec le SIRET.
- * Si le SIRET n'existe pas, on utilise le nom.
  */
 async function findCompany(siret, name) {
   if (siret) {
@@ -130,7 +120,7 @@ async function findCompany(siret, name) {
     `
     SELECT *
     FROM companies
-    WHERE LOWER(name) = LOWER($1)
+    WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))
     LIMIT 1
     `,
     [name]
@@ -140,7 +130,7 @@ async function findCompany(siret, name) {
 }
 
 /**
- * Crée ou met à jour une entreprise.
+ * Crée ou actualise une entreprise.
  */
 async function upsertCompany(offer) {
   const ent = offer.entreprise || {};
@@ -152,7 +142,7 @@ async function upsertCompany(offer) {
   const postcode =
     offer.lieuTravail?.codePostal || '';
 
-  const dept =
+  const department =
     deptFromPostcode(postcode);
 
   const siret =
@@ -165,13 +155,12 @@ async function upsertCompany(offer) {
       name,
       postcode
     );
-  } catch (error) {
-    // L'enrichissement SIRENE ne doit jamais
-    // empêcher la synchronisation des offres.
+  } catch {
     sirene = null;
   }
 
-  const info = companyInfo(sirene);
+  const info =
+    companyInfo(sirene);
 
   const count =
     employeeCount(sirene);
@@ -182,37 +171,44 @@ async function upsertCompany(offer) {
   const intermediary =
     isIntermediary(name);
 
-  /**
-   * Score commercial.
-   *
-   * 100 = très intéressant commercialement
-   * 0   = à ne pas prospecter
-   */
+  let companyType = 'unknown';
   let commercialScore = 0;
 
   if (intermediary) {
+    companyType = 'intermediary';
     commercialScore = 0;
   } else if (sizeStatus === 'eligible') {
+    companyType = 'pme';
+
     commercialScore = 80;
 
-    // Très petite PME : priorité supérieure
     if (count !== null && count <= 9) {
       commercialScore += 15;
     } else if (count !== null && count <= 19) {
       commercialScore += 10;
     }
 
-    // Une offre active est un signal commercial fort
     commercialScore += 5;
 
     commercialScore =
       Math.min(100, commercialScore);
+
+  } else if (
+    sizeStatus === 'too_large'
+  ) {
+    companyType = 'large_company';
+    commercialScore = 0;
+
+  } else {
+    companyType = 'unknown';
+    commercialScore = 0;
   }
 
   let company =
     await findCompany(siret, name);
 
   if (!company) {
+
     const result = await q(
       `
       INSERT INTO companies (
@@ -228,13 +224,19 @@ async function upsertCompany(offer) {
         employee_source,
         employee_verified_at,
         commercial_score,
+        company_type,
+        size_status,
+        is_intermediary,
         source,
         raw
       )
       VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        CASE WHEN $9 IS NOT NULL THEN now() ELSE NULL END,
-        $11,'France Travail',$12
+        CASE
+          WHEN $9 IS NOT NULL THEN now()
+          ELSE NULL
+        END,
+        $11,$12,$13,$14,$15,'France Travail',$16
       )
       RETURNING *
       `,
@@ -245,25 +247,24 @@ async function upsertCompany(offer) {
         info.address,
         postcode,
         offer.lieuTravail?.commune || null,
-        dept,
+        department,
         info.website || ent.url || null,
         count,
         count !== null
           ? 'SIRENE'
           : null,
         commercialScore,
+        companyType,
+        sizeStatus,
+        intermediary,
         JSON.stringify(ent)
       ]
     );
 
     company = result.rows[0];
+
   } else {
-    /**
-     * Mise à jour des données existantes.
-     *
-     * Cela permet d'enrichir progressivement
-     * les entreprises déjà enregistrées.
-     */
+
     const result = await q(
       `
       UPDATE companies
@@ -275,21 +276,34 @@ async function upsertCompany(offer) {
         city = COALESCE($6, city),
         department = COALESCE($7, department),
         website = COALESCE($8, website),
-        employee_count = COALESCE($9, employee_count),
+
+        employee_count =
+          COALESCE($9, employee_count),
+
         employee_source =
           CASE
-            WHEN $9 IS NOT NULL THEN 'SIRENE'
+            WHEN $9 IS NOT NULL
+            THEN 'SIRENE'
             ELSE employee_source
           END,
+
         employee_verified_at =
           CASE
-            WHEN $9 IS NOT NULL THEN now()
+            WHEN $9 IS NOT NULL
+            THEN now()
             ELSE employee_verified_at
           END,
+
         commercial_score = $10,
-        raw = $11,
+        company_type = $11,
+        size_status = $12,
+        is_intermediary = $13,
+
+        raw = $14,
         updated_at = now()
+
       WHERE id = $1
+
       RETURNING *
       `,
       [
@@ -299,10 +313,13 @@ async function upsertCompany(offer) {
         info.address,
         postcode,
         offer.lieuTravail?.commune || null,
-        dept,
+        department,
         info.website || ent.url || null,
         count,
         commercialScore,
+        companyType,
+        sizeStatus,
+        intermediary,
         JSON.stringify(ent)
       ]
     );
@@ -314,15 +331,17 @@ async function upsertCompany(offer) {
   return {
     company,
     intermediary,
+    companyType,
     sizeStatus,
     employeeCount: count
   };
 }
 
 /**
- * Synchronisation principale France Travail.
+ * Synchronisation France Travail.
  */
 export async function syncFranceTravail() {
+
   const runResult = await q(
     `
     INSERT INTO sync_runs (
@@ -344,14 +363,24 @@ export async function syncFranceTravail() {
     offers: 0,
     companies: 0,
     rejected: 0,
+
     intermediaryOffers: 0,
     largeCompanyOffers: 0,
     unknownCompanyOffers: 0,
+
     eligibleCompanies: 0,
+
     matches: 0
   };
 
+  /**
+   * Entreprises déjà comptées pendant
+   * cette synchronisation.
+   */
+  const countedCompanies = new Set();
+
   try {
+
     if (!configured()) {
       throw new Error(
         'France Travail non configuré: renseignez FT_CLIENT_ID et FT_CLIENT_SECRET dans .env'
@@ -361,71 +390,76 @@ export async function syncFranceTravail() {
     const data =
       await searchOffers();
 
-    for (const offer of data.resultats || []) {
+    for (
+      const offer of data.resultats || []
+    ) {
+
       const postcode =
         offer.lieuTravail?.codePostal || '';
 
-      const dept =
+      const department =
         deptFromPostcode(postcode);
 
       /**
-       * Premier filtre : région ciblée.
+       * Filtre géographique.
        */
-      if (!DEPTS.has(dept)) {
+      if (!DEPTS.has(department)) {
         stats.rejected++;
         continue;
       }
 
       /**
-       * Deuxième filtre : métier.
+       * Filtre métier.
        */
       if (!isRelevant(offer)) {
         stats.rejected++;
         continue;
       }
 
-      const {
-        company,
-        intermediary,
-        sizeStatus
-      } = await upsertCompany(offer);
+      const result =
+        await upsertCompany(offer);
+
+      const company =
+        result.company;
 
       /**
-       * Statistiques commerciales.
+       * Statistiques.
        */
-      if (company.created_at) {
-        // Ne pas incrémenter systématiquement :
-        // cette information est seulement indicative.
+      if (!countedCompanies.has(company.id)) {
+
+        countedCompanies.add(company.id);
+
+        stats.companies++;
+
+        if (
+          result.companyType === 'pme'
+        ) {
+          stats.eligibleCompanies++;
+        }
       }
 
-      if (intermediary) {
+      if (
+        result.intermediary
+      ) {
         stats.intermediaryOffers++;
       }
 
-      if (sizeStatus === 'too_large') {
+      if (
+        result.sizeStatus === 'too_large'
+      ) {
         stats.largeCompanyOffers++;
       }
 
       if (
-        sizeStatus === 'unknown' ||
-        sizeStatus === 'unknown_20_49'
+        result.sizeStatus === 'unknown' ||
+        result.sizeStatus === 'unknown_20_49'
       ) {
         stats.unknownCompanyOffers++;
       }
 
-      if (
-        !intermediary &&
-        sizeStatus === 'eligible'
-      ) {
-        stats.eligibleCompanies++;
-      }
-
       /**
-       * IMPORTANT :
-       * même si l'entreprise n'est pas une PME cible,
-       * on conserve son offre.
-       *
-       * Elle reste donc visible dans "Offres".
+       * L'offre est conservée même si
+       * l'entreprise n'est pas une PME cible.
        */
       await q(
         `
@@ -454,14 +488,17 @@ export async function syncFranceTravail() {
           $1,$2,$3,$4,$5,$6,$7,$8,$9,
           $10,$11,$12,$13,$14,$15,$16,$17
         )
+
         ON CONFLICT (
           source,
           source_id
         )
+
         DO UPDATE SET
+
           title = EXCLUDED.title,
-          description = EXCLUDED.description,
           company_id = EXCLUDED.company_id,
+          description = EXCLUDED.description,
           location = EXCLUDED.location,
           postcode = EXCLUDED.postcode,
           department = EXCLUDED.department,
@@ -485,14 +522,14 @@ export async function syncFranceTravail() {
           offer.description || '',
           offer.lieuTravail?.libelle || '',
           postcode,
-          dept,
+          department,
           offer.typeContrat || '',
           offer.dureeTravailLibelle || '',
           offer.salaire?.libelle || '',
           offer.horaireTravail || '',
           offer.experienceLibelle || '',
           offer.competences
-            ?.map((x) => x.libelle)
+            ?.map(x => x.libelle)
             .join(', ') || '',
           offer.origineOffre?.urlOrigine ||
             offer.contact?.urlPostulation ||
@@ -507,10 +544,10 @@ export async function syncFranceTravail() {
     }
 
     /**
-     * Matching candidats ↔ offres.
+     * MATCHING
      *
-     * On ne limite pas ici aux PME :
-     * le matching pourra être utilisé plus largement.
+     * On conserve tous les jobs actifs.
+     * Les candidats seront intégrés ensuite.
      */
     const jobsResult = await q(
       `
@@ -541,16 +578,21 @@ export async function syncFranceTravail() {
       candidatesResult.rows;
 
     for (const job of jobs) {
+
       for (const candidate of candidates) {
+
         const result =
           score(job, candidate);
 
-        if (
-          result.score >=
+        const threshold =
           Number(
             process.env.MATCH_ALERT_THRESHOLD || 85
-          )
+          );
+
+        if (
+          result.score >= threshold
         ) {
+
           await q(
             `
             INSERT INTO matches (
@@ -560,14 +602,15 @@ export async function syncFranceTravail() {
               reasons
             )
             VALUES ($1,$2,$3,$4)
+
             ON CONFLICT (
               job_id,
               candidate_id
             )
+
             DO UPDATE SET
               score = EXCLUDED.score,
               reasons = EXCLUDED.reasons
-            RETURNING id
             `,
             [
               job.id,
@@ -580,33 +623,56 @@ export async function syncFranceTravail() {
           );
 
           /**
-           * On crée l'alerte uniquement si
-           * le match est suffisamment élevé.
+           * Evite de créer une nouvelle alerte
+           * identique à chaque synchronisation.
            */
-          await q(
-            `
-            INSERT INTO alerts (
-              type,
-              job_id,
-              candidate_id,
-              score,
-              message
-            )
-            VALUES (
-              'match',
-              $1,
-              $2,
-              $3,
-              $4
-            )
-            `,
-            [
-              job.id,
-              candidate.id,
-              result.score,
-              `Match ${result.score}%: ${job.title}`
-            ]
-          );
+          const existingAlert =
+            await q(
+              `
+              SELECT id
+              FROM alerts
+              WHERE type = 'match'
+                AND job_id = $1
+                AND candidate_id = $2
+                AND score = $3
+              LIMIT 1
+              `,
+              [
+                job.id,
+                candidate.id,
+                result.score
+              ]
+            );
+
+          if (
+            existingAlert.rows.length === 0
+          ) {
+
+            await q(
+              `
+              INSERT INTO alerts (
+                type,
+                job_id,
+                candidate_id,
+                score,
+                message
+              )
+              VALUES (
+                'match',
+                $1,
+                $2,
+                $3,
+                $4
+              )
+              `,
+              [
+                job.id,
+                candidate.id,
+                result.score,
+                `Match ${result.score}%: ${job.title}`
+              ]
+            );
+          }
 
           stats.matches++;
         }
