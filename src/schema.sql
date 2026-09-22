@@ -43,3 +43,20 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 INSERT INTO app_settings(key,value) VALUES ('sync_interval_minutes','60')
 ON CONFLICT (key) DO NOTHING;
+ALTER TABLE companies
+ADD COLUMN IF NOT EXISTS company_type TEXT DEFAULT 'unknown';
+
+ALTER TABLE companies
+ADD COLUMN IF NOT EXISTS size_status TEXT DEFAULT 'unknown';
+
+ALTER TABLE companies
+ADD COLUMN IF NOT EXISTS is_intermediary BOOLEAN DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_companies_type
+ON companies(company_type);
+
+CREATE INDEX IF NOT EXISTS idx_companies_size_status
+ON companies(size_status);
+
+CREATE INDEX IF NOT EXISTS idx_companies_intermediary
+ON companies(is_intermediary);
