@@ -310,3 +310,224 @@ function showCandidateForm(candidate=null){
 }
 
 function labelInterval(m){return ({15:'toutes les 15 minutes',30:'toutes les 30 minutes',60:'toutes les heures',120:'toutes les 2 heures',360:'toutes les 6 heures',720:'toutes les 12 heures',1440:'une fois par jour'})[m]||m+' minutes';}
+function showCandidateForm(candidate=null){
+
+  const c = candidate || {};
+
+  const container = document.querySelector('#candidateForm');
+
+  if (!container) {
+    alert('Erreur : zone du formulaire candidat introuvable.');
+    return;
+  }
+
+  container.innerHTML = `
+    <article class="settings-card">
+
+      <h3>${candidate ? 'Modifier le candidat' : 'Nouveau candidat'}</h3>
+
+      <div class="candidate-form">
+
+        <label>
+          Prénom
+          <input id="cFirstName" value="${esc(c.first_name || '')}">
+        </label>
+
+        <label>
+          Nom
+          <input id="cLastName" value="${esc(c.last_name || '')}">
+        </label>
+
+        <label>
+          Métier
+          <input id="cTitle"
+            value="${esc(c.title || 'Technicien de maintenance industrielle')}">
+        </label>
+
+        <label>
+          Ville / localisation
+          <input id="cLocation" value="${esc(c.location || '')}">
+        </label>
+
+        <label>
+          Département
+          <input id="cDepartment" value="${esc(c.department || '')}">
+        </label>
+
+        <label>
+          Compétences
+          <textarea id="cSkills"
+            placeholder="Ex : maintenance industrielle, électrotechnique, automatisme..."
+          >${esc(c.skills || '')}</textarea>
+        </label>
+
+        <label>
+          Expérience
+          <input id="cExperience"
+            placeholder="Ex : 5 ans en maintenance industrielle"
+            value="${esc(c.experience || '')}">
+        </label>
+
+        <label>
+          Salaire minimum
+          <input id="cSalaryMin"
+            type="number"
+            value="${esc(c.salary_min || '')}">
+        </label>
+
+        <label>
+          Salaire maximum
+          <input id="cSalaryMax"
+            type="number"
+            value="${esc(c.salary_max || '')}">
+        </label>
+
+        <label>
+          Type de contrat
+          <select id="cContract">
+            <option value="">Indifférent</option>
+            <option value="CDI">CDI</option>
+            <option value="CDD">CDD</option>
+            <option value="Intérim">Intérim</option>
+            <option value="Alternance">Alternance</option>
+          </select>
+        </label>
+
+        <label>
+          Disponibilité
+          <input id="cAvailability"
+            placeholder="Ex : immédiate / 1 mois"
+            value="${esc(c.availability || '')}">
+        </label>
+
+        <label>
+          Source
+          <input id="cSource"
+            value="${esc(c.source || 'manuel')}">
+        </label>
+
+        <label>
+          URL du profil
+          <input id="cSourceUrl"
+            type="url"
+            value="${esc(c.source_url || '')}">
+        </label>
+
+        <label class="full">
+          Notes
+          <textarea id="cNotes"
+            placeholder="Informations importantes sur le candidat..."
+          >${esc(c.notes || '')}</textarea>
+        </label>
+
+        <label class="checkbox">
+          <input id="cActive"
+            type="checkbox"
+            ${c.active_search ? 'checked' : ''}>
+          Recherche active
+        </label>
+
+      </div>
+
+      <div class="form-actions">
+
+        <button id="saveCandidate">
+          ${candidate ? 'Enregistrer les modifications' : 'Ajouter le candidat'}
+        </button>
+
+        <button id="cancelCandidate">
+          Annuler
+        </button>
+
+      </div>
+
+    </article>
+  `;
+
+  if (c.contract_type) {
+    document.querySelector('#cContract').value = c.contract_type;
+  }
+
+  document.querySelector('#cancelCandidate').onclick = () => {
+    container.innerHTML = '';
+  };
+
+  document.querySelector('#saveCandidate').onclick = async () => {
+
+    const payload = {
+      first_name: document.querySelector('#cFirstName').value.trim(),
+      last_name: document.querySelector('#cLastName').value.trim(),
+      title: document.querySelector('#cTitle').value.trim(),
+      location: document.querySelector('#cLocation').value.trim(),
+      department: document.querySelector('#cDepartment').value.trim(),
+      skills: document.querySelector('#cSkills').value.trim(),
+      experience: document.querySelector('#cExperience').value.trim(),
+
+      salary_min:
+        document.querySelector('#cSalaryMin').value
+          ? Number(document.querySelector('#cSalaryMin').value)
+          : null,
+
+      salary_max:
+        document.querySelector('#cSalaryMax').value
+          ? Number(document.querySelector('#cSalaryMax').value)
+          : null,
+
+      contract_type:
+        document.querySelector('#cContract').value,
+
+      availability:
+        document.querySelector('#cAvailability').value.trim(),
+
+      source:
+        document.querySelector('#cSource').value.trim() || 'manuel',
+
+      source_url:
+        document.querySelector('#cSourceUrl').value.trim(),
+
+      notes:
+        document.querySelector('#cNotes').value.trim(),
+
+      active_search:
+        document.querySelector('#cActive').checked
+    };
+
+    if (!payload.first_name || !payload.last_name) {
+      alert('Le prénom et le nom sont obligatoires.');
+      return;
+    }
+
+    try {
+
+      if (candidate) {
+
+        await api(`/api/candidates/${candidate.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+      } else {
+
+        await api('/api/candidates', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+      }
+
+      await loadStats();
+      await tab('candidates');
+
+    } catch (e) {
+
+      alert(e.message);
+
+    }
+  };
+}
