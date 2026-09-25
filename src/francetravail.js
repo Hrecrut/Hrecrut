@@ -62,57 +62,41 @@ async function token() {
   return cached.token;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const list = (v, def) => (v || def).split(',').map(x => x.trim()).filter(Boolean);
+
+// Une requête par département et par mot-clé (l'API accepte un seul département à la fois),
+// avec pagination, puis dédoublonnage par identifiant d'offre.
 export async function searchOffers() {
   const t = await token();
+  const depts = list(process.env.FT_DEPARTMENTS, '75,77,78,91,92,93,94,95');
+  const keywords = list(process.env.FT_KEYWORDS, 'technicien de maintenance,électromécanicien,électrotechnicien');
+  const since = process.env.FT_PUBLISHED_SINCE || '7';
+  const byId = new Map();
 
- const departmentGroups = [
-  ['75', '77', '78', '91', '92'],
-  ['93', '94', '95']
-  ];
-
-  const allOffers = [];
-
-  for (const departments of departmentGroups) {
-    const params = new URLSearchParams();
-
-   params.set('motsCles', 'technicien de maintenance');
-
-    params.set('departement', departments.join(','));
-    params.set('publieeDepuis', '1');
-    params.set('range', '0-149');
-    params.set('sort', '1');
-
-    const url = `${API_URL}?${params.toString()}`;
-
-    const r = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${t}`,
-        Accept: 'application/json'
+  for (const dep of depts) {
+    for (const kw of keywords) {
+      for (let start = 0; start < 450; start += 150) {
+        const params = new URLSearchParams({
+          motsCles: kw, departement: dep, publieeDepuis: since,
+          range: `${start}-${start + 149}`, sort: '1'
+        });
+        const r = await fetch(`${API_URL}?${params}`, {
+          headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' }
+        });
+        await sleep(150);
+        if (r.status === 204) break; // aucun résultat
+        const text = await r.text();
+        if (!r.ok) throw new Error(`France Travail API ${r.status} pour ${dep} / ${kw}: ${text.slice(0, 500)}`);
+        let data;
+        try { data = JSON.parse(text); }
+        catch { throw new Error(`France Travail réponse non JSON pour ${dep} / ${kw}: ${text.slice(0, 300)}`); }
+        const res = data.resultats || [];
+        for (const o of res) byId.set(o.id, o);
+        if (res.length < 150) break;
       }
-    });
-
-    const responseText = await r.text();
-
-    if (!r.ok) {
-      throw new Error(
-        `France Travail API ${r.status} pour ${departments.join(',')}: ${responseText.slice(0, 1000)}`
-      );
     }
-
-    let data;
-
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      throw new Error(
-        `France Travail réponse non JSON pour ${departments.join(',')}: ${responseText.slice(0, 1000)}`
-      );
-    }
-
-    allOffers.push(...(data.resultats || []));
   }
-
-  return {
-    resultats: allOffers
-  };
+  return { resultats: [...byId.values()] };
+}
 }
