@@ -1,5 +1,4 @@
 {
-{
   "name": "maintimatch-v1",
   "version": "1.0.0",
   "private": true,
@@ -20,4 +19,3 @@
   "engines": {
     "node": ">=20"
   }
-}
