@@ -21,7 +21,7 @@ const SKILLS = {
   'Maintenance préventive/curative': [/maintenance/, /depannage/, /preventi/, /curati/]
 };
 
-function detectSkills(text) {
+export function detectSkills(text) {
   const t = norm(text);
   return Object.entries(SKILLS)
     .filter(([, patterns]) => patterns.some(re => re.test(t)))
