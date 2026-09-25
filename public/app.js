@@ -10,7 +10,7 @@ async function tabInner(t){if(t==='crm'){await renderCrm();return;}if(t==='dashb
         <h2>Candidats</h2>
         <p>Ajoute et gère tes candidats manuellement.</p>
       </div>
-      <button id="newCandidate">+ Ajouter un candidat</button>
+      <button id="newCandidate">+ Ajouter un candidat</button> <button id="cvBtn" class="ghost">📄 Importer un CV</button><input id="cvFile" type="file" accept=".pdf,.docx" hidden>
     </div>
 
     <div id="candidateForm"></div>
@@ -61,6 +61,8 @@ async function tabInner(t){if(t==='crm'){await renderCrm();return;}if(t==='dashb
   $('#newCandidate').onclick=()=>{
     showCandidateForm();
   };
+  $('#cvBtn').onclick=()=>$('#cvFile').click();
+  $('#cvFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;const b=$('#cvBtn');b.textContent='Analyse en cours…';try{const b64=await new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=ko;r.readAsDataURL(f)});const d=await api('/api/candidates/import-cv',{method:'POST',headers:J,body:JSON.stringify({filename:f.name,data:b64})});showCandidateForm(null,{...d.fields,source:'CV importé'});}catch(err){alert(err.message)}finally{b.textContent='📄 Importer un CV';e.target.value=''}};
 
   document.querySelectorAll('.editCandidate').forEach(btn=>{
     btn.onclick=()=>{
@@ -96,9 +98,9 @@ async function boot(){try{const h=await api('/api/health');$('#status').textCont
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab));$('#sync').onclick=async()=>{ $('#sync').disabled=true; $('#sync').textContent='Synchronisation…'; try{const d=await api('/api/sync',{method:'POST'});alert('Synchronisation terminée : '+JSON.stringify(d.stats));await boot()}catch(e){alert(e.message)}finally{$('#sync').disabled=false;$('#sync').textContent='Synchroniser'}}; boot();
 
 function labelInterval(m){return ({15:'toutes les 15 minutes',30:'toutes les 30 minutes',60:'toutes les heures',120:'toutes les 2 heures',360:'toutes les 6 heures',720:'toutes les 12 heures',1440:'une fois par jour'})[m]||m+' minutes';}
-function showCandidateForm(candidate=null){
+function showCandidateForm(candidate=null,prefill=null){
 
-  const c = candidate || {};
+  const c = candidate || prefill || {};
 
   const container = document.querySelector('#candidateForm');
 
