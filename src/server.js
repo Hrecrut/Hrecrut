@@ -1,5 +1,5 @@
 import 'dotenv/config'; import express from 'express'; import path from 'path'; import {fileURLToPath} from 'url'; import cron from 'node-cron'; import XLSX from 'xlsx'; import {initDb,q} from './db.js'; import {syncFranceTravail} from './sync.js';import {score} from './matching.js';
-const __dirname=path.dirname(fileURLToPath(import.meta.url)); const app=express(); app.use(express.json()); app.use(express.static(path.join(__dirname,'../public')));
+const __dirname=path.dirname(fileURLToPath(import.meta.url)); const app=express(); app.use(express.json({limit:'12mb'})); app.use(express.static(path.join(__dirname,'../public')));
 async function runCandidateMatching(candidateId) {
 
   const candidateResult = await q(`
@@ -386,6 +386,7 @@ app.put('/api/settings/sync',async(req,res)=>{const minutes=Number(req.body?.int
 app.get('/api/sync/status',async(_,res)=>{const r=await q("SELECT id,source,status,started_at,finished_at,stats,error FROM sync_runs ORDER BY id DESC LIMIT 1");res.json(r.rows[0]||null);});
 app.get('/api/export/jobs.xlsx',async(_,res)=>{const rows=(await q("SELECT j.title,c.name company,c.employee_count,j.location,j.postcode,j.department,j.contract_type,j.salary_text,j.schedule,j.experience,j.skills,j.url FROM jobs j LEFT JOIN companies c ON c.id=j.company_id WHERE j.status='active' AND (c.employee_count<=40 OR c.employee_count IS NULL) ORDER BY j.updated_source_at DESC")).rows; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Offres'); const buf=XLSX.write(wb,{type:'buffer',bookType:'xlsx'});res.setHeader('Content-Disposition','attachment; filename="maintimatch-offres.xlsx"');res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').send(buf);});
 
+app.post('/api/candidates/import-cv',async(req,res)=>{try{const {filename='',data=''}=req.body||{};if(!data)return res.status(400).json({error:'Aucun fichier reçu'});const {extractText,parseCv}=await import('./cv.js');const text=await extractText(Buffer.from(data,'base64'),filename);if(text.trim().length<30)return res.status(422).json({error:'Aucun texte lisible : le CV est peut-être une image scannée.'});res.json({fields:parseCv(text)})}catch(e){res.status(400).json({error:e.message})}});
 const STAGES=['Nouveau prospect','À appeler','Appelé','Intéressé','Offre récupérée','Candidats envoyés','Entretien','Placement','Refus','À relancer'];
 const fail=(res,e)=>res.status(500).json({error:e.message});
 app.get('/api/crm',async(_,res)=>{try{res.json((await q(`SELECT r.*,c.name,c.city,c.postcode,c.phone,c.email,c.employee_count,(SELECT count(*) FROM jobs j WHERE j.company_id=c.id AND j.status='active')::int AS jobs FROM crm r JOIN companies c ON c.id=r.company_id ORDER BY r.next_followup NULLS LAST,r.updated_at DESC`)).rows)}catch(e){fail(res,e)}});
