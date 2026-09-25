@@ -99,4 +99,3 @@ export async function searchOffers() {
   }
   return { resultats: [...byId.values()] };
 }
-}
